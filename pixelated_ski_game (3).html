@@ -1,0 +1,537 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>The Black Slope</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            background: #1a1a1a;
+            font-family: Arial, sans-serif;
+            font-weight: bold;
+            overflow: hidden;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            padding: 10px;
+        }
+
+        .game-container {
+            position: relative;
+            background: #2a2a2a;
+            border-radius: 15px;
+            padding: 20px;
+            border: 3px solid #444;
+            box-shadow: 0 0 30px rgba(0,0,0,0.8);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        canvas {
+            background: #000;
+            border: 4px solid #333;
+            border-radius: 8px;
+            display: block;
+        }
+
+        .overlay {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: rgba(0,0,0,0.95);
+            color: white;
+            padding: 50px;
+            border: 2px solid #0B35C3;
+            text-align: center;
+            min-width: 350px;
+            min-height: 300px;
+        }
+
+        .title {
+            font-size: 32px;
+            color: white;
+            margin-bottom: 30px;
+            text-transform: uppercase;
+        }
+
+        .button {
+            background: #0B35C3;
+            color: white;
+            border: none;
+            padding: 15px 30px;
+            font-size: 18px;
+            cursor: pointer;
+            font-family: Arial, sans-serif;
+            font-weight: bold;
+            text-transform: uppercase;
+            margin: 10px;
+            transition: background 0.2s;
+        }
+
+        .button:hover {
+            background: #1e4cd4;
+        }
+
+        .instructions {
+            color: #ecf0f1;
+            font-size: 14px;
+            margin-top: 20px;
+            text-transform: uppercase;
+        }
+
+        .score {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            color: #e74c3c;
+            font-size: 18px;
+            text-transform: uppercase;
+            z-index: 10;
+        }
+
+        .copyright {
+            position: absolute;
+            bottom: 15px;
+            left: 50%;
+            transform: translateX(-50%);
+            color: #7f8c8d;
+            font-size: 12px;
+            font-weight: normal;
+        }
+
+        .hidden {
+            display: none;
+        }
+
+        /* Desktop/Landscape */
+        @media (orientation: landscape) {
+            canvas {
+                width: 800px;
+                height: 400px;
+            }
+        }
+
+        /* Mobile/Portrait */
+        @media (orientation: portrait) {
+            body {
+                padding: 5px;
+            }
+            
+            .game-container {
+                padding: 15px;
+                width: 100vw;
+                height: 100vh;
+            }
+            
+            canvas {
+                width: 400px;
+                height: 600px;
+            }
+            
+            .overlay {
+                min-width: 280px;
+                min-height: 250px;
+                padding: 30px;
+            }
+            
+            .title {
+                font-size: 24px;
+            }
+            
+            .button {
+                font-size: 16px;
+                padding: 12px 25px;
+            }
+            
+            .score {
+                font-size: 16px;
+            }
+            
+            .copyright {
+                font-size: 10px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="game-container">
+        <!-- Menu Screen -->
+        <div id="menu" class="overlay">
+            <div class="title">THE BLACK SLOPE</div>
+            <button class="button" onclick="startGame()">START GAME</button>
+            <div class="instructions">
+                DESKTOP: HOLD SPACEBAR TO JUMP<br>
+                MOBILE: TAP SCREEN TO JUMP
+            </div>
+            <div class="copyright">© OFF PISTE</div>
+        </div>
+
+        <!-- Game Over Screen -->
+        <div id="gameOver" class="overlay hidden">
+            <div class="title">GAME OVER!</div>
+            <div style="margin: 20px 0; font-size: 16px;">
+                DISTANCE: <span id="finalDistance">0</span>M
+            </div>
+            <button class="button" onclick="tryAgain()">TRY AGAIN</button>
+            <button class="button" onclick="goToMenu()">MENU</button>
+        </div>
+
+        <!-- Game UI -->
+        <div id="gameUI" class="score hidden">
+            DISTANCE: <span id="distance">0</span>M
+        </div>
+
+        <canvas id="gameCanvas"></canvas>
+    </div>
+
+    <script>
+        // Initialize canvas
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+
+        // Set canvas size based on screen orientation
+        function initCanvas() {
+            const isPortrait = window.innerHeight > window.innerWidth;
+            if (isPortrait) {
+                canvas.width = 400;
+                canvas.height = 600;
+            } else {
+                canvas.width = 800;
+                canvas.height = 400;
+            }
+        }
+
+        // Call on load
+        initCanvas();
+
+        // Game state
+        let gameState = 'menu'; // 'menu', 'playing', 'gameOver'
+        let distance = 0;
+        let gameSpeed = 4;
+        let spaceHeld = false;
+
+        // Player
+        const player = {
+            x: 100,
+            y: 0,
+            width: 20,
+            height: 20,
+            velocityY: 0,
+            isJumping: false,
+            jumpPower: 15,
+            gravity: 0.8,
+            getGroundY() {
+                return canvas.height - 100;
+            }
+        };
+
+        // Initialize player position
+        player.y = player.getGroundY();
+
+        // Game objects
+        let trees = [];
+        let particles = [];
+
+        // Input handling
+        document.addEventListener('keydown', (e) => {
+            if (e.code === 'Space') {
+                e.preventDefault();
+                spaceHeld = true;
+                if (gameState === 'playing' && !player.isJumping) {
+                    jump();
+                }
+            }
+        });
+
+        document.addEventListener('keyup', (e) => {
+            if (e.code === 'Space') {
+                e.preventDefault();
+                spaceHeld = false;
+            }
+        });
+
+        // Touch controls
+        canvas.addEventListener('touchstart', (e) => {
+            e.preventDefault();
+            if (gameState === 'playing' && !player.isJumping) {
+                jump();
+            }
+        });
+
+        canvas.addEventListener('click', () => {
+            if (gameState === 'playing' && !player.isJumping) {
+                jump();
+            }
+        });
+
+        // Jump function
+        function jump() {
+            if (!player.isJumping) {
+                player.isJumping = true;
+                player.velocityY = -player.jumpPower;
+                
+                // Add jump particles
+                for (let i = 0; i < 5; i++) {
+                    particles.push({
+                        x: player.x + Math.random() * 20,
+                        y: player.y + 20,
+                        vx: (Math.random() - 0.5) * 4,
+                        vy: -Math.random() * 3,
+                        life: 20
+                    });
+                }
+            }
+        }
+
+        // Tree class
+        class Tree {
+            constructor() {
+                this.x = canvas.width + 50;
+                this.y = canvas.height - 140;
+                this.width = 30 + Math.random() * 20;
+                this.height = 60 + Math.random() * 30;
+            }
+
+            update() {
+                this.x -= gameSpeed;
+            }
+
+            draw() {
+                // Pine tree
+                ctx.fillStyle = '#0B35C3';
+                
+                // Draw 3 triangular layers
+                for (let i = 0; i < 3; i++) {
+                    const layerY = this.y + i * 20;
+                    const layerWidth = this.width - (i * 6);
+                    const layerX = this.x + (this.width - layerWidth) / 2;
+                    
+                    ctx.beginPath();
+                    ctx.moveTo(layerX + layerWidth/2, layerY);
+                    ctx.lineTo(layerX, layerY + 25);
+                    ctx.lineTo(layerX + layerWidth, layerY + 25);
+                    ctx.closePath();
+                    ctx.fill();
+                }
+                
+                // Tree trunk
+                ctx.fillStyle = '#8b4513';
+                ctx.fillRect(this.x + this.width/2 - 4, this.y + 60, 8, 20);
+            }
+
+            checkCollision() {
+                return player.x < this.x + this.width - 5 &&
+                       player.x + player.width > this.x + 5 &&
+                       player.y < this.y + this.height - 5 &&
+                       player.y + player.height > this.y + 5;
+            }
+        }
+
+        // Draw functions
+        function drawBackground() {
+            // Sky (40%)
+            const skyHeight = canvas.height * 0.4;
+            const gradient = ctx.createLinearGradient(0, 0, 0, skyHeight);
+            gradient.addColorStop(0, '#1a1a2e');
+            gradient.addColorStop(1, '#0f3460');
+            ctx.fillStyle = gradient;
+            ctx.fillRect(0, 0, canvas.width, skyHeight);
+            
+            // Slope (60%)
+            ctx.fillStyle = '#FFFDFD';
+            ctx.fillRect(0, skyHeight, canvas.width, canvas.height - skyHeight);
+            
+            // Ground texture
+            ctx.fillStyle = '#ecf0f1';
+            for (let x = 0; x < canvas.width; x += 40) {
+                ctx.fillRect(x, canvas.height - 10, 20, 8);
+            }
+        }
+
+        function drawPlayer() {
+            const px = Math.floor(player.x);
+            const py = Math.floor(player.y);
+            
+            // Shadow
+            if (!player.isJumping) {
+                ctx.fillStyle = 'rgba(0,0,0,0.3)';
+                ctx.fillRect(px + 3, py + 22, 14, 3);
+            }
+            
+            // Skis
+            ctx.fillStyle = '#0C0C0C';
+            ctx.fillRect(px - 5, py + 18, 30, 2);
+            
+            // Body
+            ctx.fillStyle = '#0C0C0C';
+            ctx.fillRect(px + 6, py + 6, 8, 12);
+            
+            // Head
+            ctx.fillStyle = '#0C0C0C';
+            ctx.fillRect(px + 8, py, 4, 6);
+            
+            // Helmet
+            ctx.fillStyle = '#0B35C3';
+            ctx.fillRect(px + 7, py - 1, 6, 4);
+            
+            // Arms
+            ctx.fillStyle = '#0C0C0C';
+            ctx.fillRect(px + 2, py + 8, 3, 6);
+            ctx.fillRect(px + 15, py + 8, 3, 6);
+        }
+
+        function updateParticles() {
+            for (let i = particles.length - 1; i >= 0; i--) {
+                const p = particles[i];
+                p.x += p.vx;
+                p.y += p.vy;
+                p.vy += 0.2;
+                p.life--;
+                
+                if (p.life <= 0) {
+                    particles.splice(i, 1);
+                } else {
+                    ctx.fillStyle = 'rgba(255,255,255,0.8)';
+                    ctx.fillRect(p.x, p.y, 2, 2);
+                }
+            }
+        }
+
+        // Game logic
+        function updateGame() {
+            if (gameState !== 'playing') return;
+
+            // Update distance
+            distance += gameSpeed * 0.025;
+            document.getElementById('distance').textContent = Math.floor(distance);
+            
+            // Increase speed
+            gameSpeed += 0.005;
+            
+            // Handle continuous jumping
+            if (spaceHeld && !player.isJumping) {
+                jump();
+            }
+            
+            // Update player physics
+            if (player.isJumping) {
+                player.velocityY += player.gravity;
+                player.y += player.velocityY;
+                
+                if (player.y >= player.getGroundY()) {
+                    player.y = player.getGroundY();
+                    player.isJumping = false;
+                    player.velocityY = 0;
+                }
+            }
+            
+            // Spawn trees
+            if (Math.random() < 0.02) {
+                trees.push(new Tree());
+            }
+            
+            // Update trees
+            for (let i = trees.length - 1; i >= 0; i--) {
+                trees[i].update();
+                
+                if (trees[i].x < -100) {
+                    trees.splice(i, 1);
+                    continue;
+                }
+                
+                if (trees[i].checkCollision()) {
+                    endGame();
+                    return;
+                }
+            }
+        }
+
+        // Main render function
+        function render() {
+            // Clear canvas
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            
+            // Draw background
+            drawBackground();
+            
+            if (gameState === 'playing') {
+                // Draw game objects
+                trees.forEach(tree => tree.draw());
+                drawPlayer();
+                updateParticles();
+            }
+        }
+
+        // Game loop
+        function gameLoop() {
+            updateGame();
+            render();
+            requestAnimationFrame(gameLoop);
+        }
+
+        // Game control functions
+        function startGame() {
+            gameState = 'playing';
+            distance = 0;
+            gameSpeed = 4;
+            spaceHeld = false;
+            
+            // Reset player
+            player.x = 100;
+            player.y = player.getGroundY();
+            player.velocityY = 0;
+            player.isJumping = false;
+            
+            // Clear objects
+            trees = [];
+            particles = [];
+            
+            // Update UI
+            document.getElementById('menu').classList.add('hidden');
+            document.getElementById('gameOver').classList.add('hidden');
+            document.getElementById('gameUI').classList.remove('hidden');
+        }
+
+        function endGame() {
+            gameState = 'gameOver';
+            spaceHeld = false;
+            
+            // Update final score
+            document.getElementById('finalDistance').textContent = Math.floor(distance);
+            
+            // Show game over screen
+            document.getElementById('gameOver').classList.remove('hidden');
+        }
+
+        function tryAgain() {
+            startGame();
+        }
+
+        function goToMenu() {
+            gameState = 'menu';
+            spaceHeld = false;
+            
+            // Clear objects
+            trees = [];
+            particles = [];
+            
+            // Update UI
+            document.getElementById('menu').classList.remove('hidden');
+            document.getElementById('gameOver').classList.add('hidden');
+            document.getElementById('gameUI').classList.add('hidden');
+        }
+
+        // Start the game loop
+        gameLoop();
+    </script>
+</body>
+</html>
